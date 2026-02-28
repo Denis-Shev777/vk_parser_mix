@@ -1,6 +1,6 @@
 {
     "vk_token": "vk1.a.ULIvJrALsRnqCosZUCgTtylIcHDlRGd3h5lOWQICa6uDouQ9j7QQaVrapOoMVRugqYry3xfKBm66oSqbch2VbkIPnXpNdyj3nc_1BIVmtFmYf2V3uYIHOdF4t4yJ2b8YDKgu1w1sMebz4GUoQdwCuTDtg82fS4bYVSe-wWIdj_VHM2zfzl9tcPG3q0fmJsMQSlnhXWMeuGNXZpqKTNWFcg",
-    "vk_chat_id": "001",
+    "vk_chat_id": "1",
     "sources": [
         "https://vk.com/t.shop2020"
     ],
@@ -16,5 +16,11 @@
     "limit_photos_count": 4,
     "mode": "date",
     "count": null,
-    "hours": 48
+    "hours": 48,
+    "antispam_enabled": true,
+    "antispam_window_sec": 300,
+    "antispam_notify_telegram": true,
+    "order_notify_enabled": false,
+    "order_notify_vk_id": "irina_mod",
+    "order_chat_link": "https://vk.com/im/convo/2000000001"
 }

@@ -43,6 +43,9 @@ DEFAULT_SETTINGS = {
     "mode": "date",
     "count": None,
     "hours": 24,
+    "order_notify_enabled": False,
+    "order_notify_vk_id": "",
+    "order_chat_link": "",
 }
 MY_USER_ID = "DenisTest"
 CSV_URL = "https://docs.google.com/spreadsheets/d/12BcHBsDRjqR60T8ClR5VXugdMPOXhEpPPTov5-bIAmY/export?format=csv&gid=0"
@@ -432,6 +435,113 @@ BASE_STOPWORDS = [
     "🎀Модный",
     "заказы",
 ]
+
+# ================== ORDER DETECTION KEYWORDS ==================
+# Ключевые слова для определения заказов в чате
+# Включает вариации с опечатками и разным написанием
+ORDER_KEYWORDS = [
+    # Заказ и вариации (+ опечатки)
+    "заказ", "заказать", "закажу", "заказываю", "зказ", "заказа", "закас",
+    "оформить заказ", "оформляю заказ", "хочу заказать",
+
+    # Размеры (главный индикатор!) + опечатки
+    "размер", "размеры", "розмер", "розмір", "рамер", "размерчик", "рзмр",
+    "какой размер", "какие размеры", "есть размер", "нужен размер",
+    "36 размер", "37 размер", "38 размер", "39 размер", "40 размер",
+    "41 размер", "42 размер", "43 размер", "44 размер", "45 размер",
+    "р 36", "р 37", "р 38", "р 39", "р 40", "р 41", "р 42", "р 43", "р 44",
+    "р.36", "р.37", "р.38", "р.39", "р.40", "р.41", "р.42", "р.43", "р.44",
+    "размер 36", "размер 37", "размер 38", "размер 39", "размер 40",
+
+    # Посадка/размерность + опечатки
+    "маломерит", "маломерят", "маломерка", "маломерки", "маломер", "мало мерит",
+    "большемерит", "большемерят", "большемерка", "большемер", "больше мерит",
+    "в размер", "идут в размер", "по размеру", "размер в размер",
+    "на широкую ногу", "на узкую ногу", "полнота", "полноразмерные",
+
+    # Сезон + опечатки
+    "сезон", "сизон", "какой сезон", "на какой сезон", "для какого сезона",
+    "зима", "зимние", "зимняя", "зімові", "на зиму",
+    "лето", "летние", "летняя", "літні", "на лето",
+    "весна", "осень", "демисезон", "деми", "демисезонные",
+
+    # Материал + опечатки
+    "материал", "матеріал", "материял", "матерьял", "матириал",
+    "из чего", "из какого материала", "что за материал",
+    "кожа", "кожаные", "натуральная кожа", "нат кожа", "натуралка",
+    "эко кожа", "экокожа", "эко-кожа", "кожзам", "искусственная",
+    "замша", "замшевые", "текстиль", "ткань",
+
+    # Покупка/интерес + опечатки
+    "беру", "возьму", "забираю", "куплю", "покупаю", "бяру", "вазьму",
+    "хочу купить", "хочу взять", "мне нужно", "мне нужны", "мне нужен",
+
+    # Цена + опечатки
+    "сколько стоит", "скільки коштує", "какая цена", "почем", "почём",
+    "цена", "ціна", "прайс", "стоимость", "по чем",
+
+    # Наличие
+    "есть в наличии", "в наличии есть", "наличие", "є в наявності",
+    "есть ли", "имеется", "остались",
+
+    # Оплата/доставка
+    "оплата", "оплатить", "оплачу", "как оплатить",
+    "доставка", "доставку", "как доставка", "куда доставка",
+    "отправка", "отправить", "отправляете",
+
+    # Бронь
+    "отложите", "отложи", "придержите", "забронируйте", "забронировать",
+
+    # Города доставки (пункты выдачи)
+    "светогорск", "выборг", "каменногорск",
+]
+
+
+def check_order_keywords(text):
+    """
+    Проверяет, содержит ли сообщение ключевые слова заказа.
+    Возвращает (True, matched_keyword) или (False, None).
+    """
+    if not text:
+        return False, None
+    text_lower = text.lower()
+    for keyword in ORDER_KEYWORDS:
+        if keyword.lower() in text_lower:
+            return True, keyword
+    return False, None
+
+
+def send_order_notification_vk(vk_token, admin_user_id, from_id, message_text, peer_id, chat_link=""):
+    """
+    Отправляет уведомление о заказе администратору в личные сообщения VK.
+    """
+    try:
+        user_name = f"id{from_id}"
+        try:
+            resp = requests.get(
+                "https://api.vk.com/method/users.get",
+                params={"user_ids": from_id, "v": VK_API_VERSION, "access_token": vk_token},
+                timeout=10
+            ).json()
+            if "response" in resp and resp["response"]:
+                u = resp["response"][0]
+                user_name = f"{u.get('first_name', '')} {u.get('last_name', '')}".strip()
+        except Exception:
+            pass
+
+        notification = (
+            f"Новый заказ в чате!\n\n"
+            f"От: {user_name} (https://vk.com/id{from_id})\n\n"
+            f"Сообщение:\n{message_text[:800]}"
+        )
+        if chat_link:
+            notification += f"\n\nПерейти в чат: {chat_link}"
+        send_vk_message(vk_token, admin_user_id, notification)
+        add_log(f"[ORDER] Уведомление отправлено админу (user_id={admin_user_id})")
+        return True
+    except Exception as e:
+        add_log(f"[ORDER ERROR] Ошибка отправки уведомления о заказе: {e}")
+        return False
 
 
 def clean_full_text(text):
@@ -4427,6 +4537,9 @@ def vk_antispam_worker(
     tg_token: str = None,
     tg_chat_id: int = None,
     notify_telegram: bool = True,
+    order_notify_enabled: bool = False,
+    order_notify_user_id: int = None,
+    order_chat_link: str = "",
 ):
     """
     УЛУЧШЕННАЯ ВЕРСИЯ с Long Poll - видит ВСЕ события в реальном времени!
@@ -4436,6 +4549,7 @@ def vk_antispam_worker(
     2) Получаем события в реальном времени (входы, сообщения)
     3) Отслеживаем кто и когда зашел
     4) Если пишет в течение window_sec после входа → кикаем
+    5) Если сообщение содержит ключевые слова заказа → уведомляем админа
     """
     add_log(f"🛡️ Антиспам: подключение к Long Poll...")
 
@@ -4741,6 +4855,13 @@ def vk_antispam_worker(
 
                                     # Удаляем из отслеживания (чтобы не кикать повторно)
                                     join_ts.pop(from_id, None)
+                                else:
+                                    # === ПРОВЕРКА ЗАКАЗОВ (только если НЕ спам) ===
+                                    if order_notify_enabled and order_notify_user_id:
+                                        is_order, matched_keyword = check_order_keywords(text)
+                                        if is_order:
+                                            add_log(f"[ORDER] Заказ от user_id={from_id}, ключ='{matched_keyword}', текст: {text[:100]}...")
+                                            send_order_notification_vk(vk_token, order_notify_user_id, from_id, text, peer_id, order_chat_link)
 
                     # Тип события 5 = редактирование сообщения
                     elif update[0] == 5:
@@ -4919,6 +5040,35 @@ def bot_worker(
     antispam_enabled = params.get("antispam_enabled", True)
     antispam_window_sec = params.get("antispam_window_sec", 300)
 
+    # --- уведомления о заказах ---
+    order_notify_enabled = params.get("order_notify_enabled", False)
+    order_notify_vk_id_raw = params.get("order_notify_vk_id", "")
+    order_chat_link = params.get("order_chat_link", "")
+    order_notify_user_id = None
+
+    if order_notify_enabled and order_notify_vk_id_raw:
+        # Конвертируем screen_name или numeric ID в числовой ID
+        if str(order_notify_vk_id_raw).isdigit():
+            order_notify_user_id = int(order_notify_vk_id_raw)
+        else:
+            try:
+                resp = requests.get(
+                    "https://api.vk.com/method/users.get",
+                    params={"user_ids": order_notify_vk_id_raw, "v": VK_API_VERSION, "access_token": vk_token},
+                    timeout=10
+                ).json()
+                if "response" in resp and resp["response"]:
+                    order_notify_user_id = resp["response"][0].get("id")
+                    add_log(f"[ORDER] '{order_notify_vk_id_raw}' -> user_id={order_notify_user_id}")
+            except Exception as e:
+                add_log(f"[ORDER ERROR] Cannot resolve '{order_notify_vk_id_raw}': {e}")
+
+        if order_notify_user_id:
+            add_log(f"[ORDER] Уведомления о заказах включены -> user_id={order_notify_user_id}")
+        else:
+            add_log(f"[ORDER WARNING] Не удалось определить VK ID '{order_notify_vk_id_raw}', уведомления отключены")
+            order_notify_enabled = False
+
     if antispam_enabled:
         # Проверяем настройку уведомлений в Telegram
         notify_telegram = params.get("antispam_notify_telegram", True)
@@ -4935,6 +5085,9 @@ def bot_worker(
                 tg_token,
                 tg_chat_id,
                 notify_telegram,
+                order_notify_enabled,
+                order_notify_user_id,
+                order_chat_link,
             ),
             daemon=True,
         ).start()
@@ -4943,9 +5096,31 @@ def bot_worker(
             if (notify_telegram and tg_token and tg_chat_id)
             else "без уведомлений"
         )
+        order_status = ", заказы -> ЛС" if order_notify_enabled else ""
         add_log(
-            f"🛡️ Антиспам VK запущен (окно: {antispam_window_sec} сек, {notify_status})."
+            f"🛡️ Антиспам VK запущен (окно: {antispam_window_sec} сек, {notify_status}{order_status})."
         )
+    elif order_notify_enabled and order_notify_user_id:
+        # Антиспам отключен, но заказы включены — запускаем Long Poll только для заказов
+        add_log("[ORDER] Антиспам отключен, но уведомления о заказах включены. Запуск Long Poll только для заказов...")
+        threading.Thread(
+            target=vk_antispam_worker,
+            args=(
+                vk_token,
+                vk_peer_id,
+                vk_chat_id,
+                stop_event_obj,
+                0,
+                1,
+                tg_token,
+                tg_chat_id,
+                False,
+                order_notify_enabled,
+                order_notify_user_id,
+                order_chat_link,
+            ),
+            daemon=True,
+        ).start()
     else:
         add_log("⚠️ Антиспам отключен в настройках.")
 
@@ -5534,6 +5709,42 @@ def main():
     ).grid(row=row_idx, column=0, sticky="w", columnspan=2, pady=3, padx=(10, 0))
 
     row_idx += 1
+    order_notify_enabled_var = tk.BooleanVar(value=settings.get("order_notify_enabled", False))
+    tk.Checkbutton(
+        main_settings_frame,
+        text="Уведомления о заказах в ЛС VK",
+        font=MED_FONT,
+        bg=BG_FRAME,
+        variable=order_notify_enabled_var,
+        activebackground=BG_FRAME,
+        activeforeground="black",
+        selectcolor=BG_FRAME,
+        relief="flat",
+    ).grid(row=row_idx, column=0, sticky="w", columnspan=2, pady=3, padx=(10, 0))
+
+    row_idx += 1
+    tk.Label(
+        main_settings_frame, text="VK ID админа (для заказов):", font=MED_FONT, bg=BG_FRAME
+    ).grid(row=row_idx, column=0, sticky="w", pady=3, padx=(10, 0))
+    order_notify_vk_id_entry = tk.Entry(
+        main_settings_frame, width=20, font=MED_FONT, bg="white", relief="groove", bd=1
+    )
+    order_notify_vk_id_entry.insert(0, str(settings.get("order_notify_vk_id", "")))
+    order_notify_vk_id_entry.grid(row=row_idx, column=1, sticky="w", pady=3, padx=(0, 10))
+    add_super_paste(order_notify_vk_id_entry)
+
+    row_idx += 1
+    tk.Label(
+        main_settings_frame, text="Ссылка на чат VK (для заказов):", font=MED_FONT, bg=BG_FRAME
+    ).grid(row=row_idx, column=0, sticky="w", pady=3, padx=(10, 0))
+    order_chat_link_entry = tk.Entry(
+        main_settings_frame, width=32, font=MED_FONT, bg="white", relief="groove", bd=1
+    )
+    order_chat_link_entry.insert(0, str(settings.get("order_chat_link", "")))
+    order_chat_link_entry.grid(row=row_idx, column=1, sticky="ew", pady=3, padx=(0, 10))
+    add_super_paste(order_chat_link_entry)
+
+    row_idx += 1
     tk.Label(main_settings_frame, text="Наценка %:", font=MED_FONT, bg=BG_FRAME).grid(
         row=row_idx, column=0, sticky="w", pady=3, padx=(10, 0)
     )
@@ -5759,6 +5970,9 @@ def main():
             "antispam_enabled": antispam_enabled_var.get(),
             "antispam_window_sec": antispam_window_entry.get().strip(),
             "antispam_notify_telegram": antispam_notify_telegram_var.get(),
+            "order_notify_enabled": order_notify_enabled_var.get(),
+            "order_notify_vk_id": order_notify_vk_id_entry.get().strip(),
+            "order_chat_link": order_chat_link_entry.get().strip(),
         }
         try:
             params["freq"] = int(params["freq"])
@@ -5819,6 +6033,9 @@ def main():
             "antispam_enabled": params["antispam_enabled"],
             "antispam_window_sec": params["antispam_window_sec"],
             "antispam_notify_telegram": params["antispam_notify_telegram"],
+            "order_notify_enabled": params["order_notify_enabled"],
+            "order_notify_vk_id": params["order_notify_vk_id"],
+            "order_chat_link": params["order_chat_link"],
         }
         save_settings(settings_to_save)
         add_log("Настройки сохранены.")
