@@ -1,0 +1,20 @@
+{
+    "vk_token": "vk1.a.ULIvJrALsRnqCosZUCgTtylIcHDlRGd3h5lOWQICa6uDouQ9j7QQaVrapOoMVRugqYry3xfKBm66oSqbch2VbkIPnXpNdyj3nc_1BIVmtFmYf2V3uYIHOdF4t4yJ2b8YDKgu1w1sMebz4GUoQdwCuTDtg82fS4bYVSe-wWIdj_VHM2zfzl9tcPG3q0fmJsMQSlnhXWMeuGNXZpqKTNWFcg",
+    "vk_chat_id": "001",
+    "sources": [
+        "https://vk.com/t.shop2020"
+    ],
+    "start_time": "06:00",
+    "end_time": "00:00",
+    "freq": 240,
+    "price_percent": 50.0,
+    "price_delta": 125,
+    "remove_links": true,
+    "remove_emoji": true,
+    "stopwords": "",
+    "limit_photos": true,
+    "limit_photos_count": 4,
+    "mode": "date",
+    "count": null,
+    "hours": 48
+}
