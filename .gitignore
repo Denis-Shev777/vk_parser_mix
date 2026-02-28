@@ -1,0 +1,34 @@
+# Токены и секреты
+vk_token.txt
+TG API token.txt
+*.token
+
+# Данные об отправленных постах (генерируются автоматически)
+sent_ids.txt
+sent_post_ids
+sent_post_ids.txt
+sent_photo_ids
+
+# Логи
+*.log
+spam_log.txt
+spam_stats.txt
+server.log
+
+# Сборка EXE
+build/
+dist/
+*.spec
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+.env
+
+# IDE
+.vscode/
+.idea/
