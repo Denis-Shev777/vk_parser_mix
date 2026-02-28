@@ -436,6 +436,9 @@ BASE_STOPWORDS = [
     "заказы",
 ]
 
+# Московское время (UTC+3)
+MSK_TZ = datetime.timezone(datetime.timedelta(hours=3))
+
 # ================== ORDER DETECTION KEYWORDS ==================
 # Ключевые слова для определения заказов в чате
 # Включает вариации с опечатками и разным написанием
