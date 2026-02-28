@@ -1,6 +1,15 @@
 # ================== VK + Telegram Photo Bot GUI ==================
-import tkinter as tk
-from tkinter import messagebox, font, scrolledtext, simpledialog
+try:
+    import tkinter as tk
+    from tkinter import messagebox, font, scrolledtext, simpledialog
+    _GUI_AVAILABLE = True
+except (ImportError, Exception):
+    tk = None
+    messagebox = None
+    font = None
+    scrolledtext = None
+    simpledialog = None
+    _GUI_AVAILABLE = False
 import threading
 import time
 import requests
