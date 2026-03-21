@@ -1122,6 +1122,7 @@ _RX_CONTACT = _re_extra.compile(
     r"(?i)(whats?app|тел|phone|vk\.com|t\.me|instagram|@|id\d+)"
 )
 _RX_PUFFS = _re_extra.compile(r"(?i)\b(puff|затяж)\w*")  # «16000 затяжек»
+_RX_PUFFS_SUFFIX = _re_extra.compile(r"(?i)^\s*(?:затяж|puff)\w*")  # суффикс после числа
 _RX_QTY_WORD = _re_extra.compile(rf"(?i)\b{_QTYW}\b")
 
 # --- специфичные/контекстные паттерны (валюта опциональна) ---
@@ -1242,6 +1243,9 @@ def find_price_by_extra_patterns(line: str):
             continue
         m = pat.search(line)
         if m:
+            # Пропускаем если после числа идёт слово «затяжек»/«puffs» (не цена, а кол-во затяжек)
+            if _RX_PUFFS_SUFFIX.match(line[m.end():]):
+                continue
             val = _normalize_price_value__extra(m.group(1))
             if val is not None:
                 return val, m.group(0)
