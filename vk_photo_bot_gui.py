@@ -4543,12 +4543,70 @@ def vk_kick_user(
         return False
 
 
+def check_vk_profile_risk(vk_token, user_id):
+    """
+    Проверяет профиль VK пользователя на признаки спам-аккаунта.
+    Возвращает (is_risky: bool, reasons: list[str])
+    """
+    try:
+        resp = vk_api_call(
+            "users.get",
+            vk_token,
+            {"user_ids": user_id, "fields": "photo_id,followers_count"},
+            timeout=5,
+        )
+        if not resp or not isinstance(resp, list) or not resp:
+            return False, []
+
+        user = resp[0]
+        reasons = []
+
+        if not user.get("photo_id"):
+            reasons.append("нет фото профиля")
+
+        followers = user.get("followers_count", 0)
+        if followers < 5:
+            reasons.append(f"мало подписчиков ({followers})")
+
+        is_risky = len(reasons) >= 1
+        return is_risky, reasons
+
+    except Exception as e:
+        add_log(f"⚠️ Профиль user_id={user_id} не проверен: {e}")
+        return False, []
+
+
+_JOINS_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "antispam_joins.json")
+
+
+def load_join_ts(window_sec):
+    """Загружает join_ts с диска, отфильтровывая записи старше window_sec."""
+    try:
+        if os.path.exists(_JOINS_FILE):
+            with open(_JOINS_FILE, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            cutoff = time.time() - window_sec
+            return {int(k): float(v) for k, v in data.items() if float(v) > cutoff}
+    except Exception as e:
+        add_log(f"⚠️ Не удалось загрузить antispam_joins.json: {e}")
+    return {}
+
+
+def save_join_ts(join_ts):
+    """Сохраняет join_ts на диск."""
+    try:
+        with open(_JOINS_FILE, "w", encoding="utf-8") as f:
+            json.dump({str(k): v for k, v in join_ts.items()}, f)
+    except Exception as e:
+        add_log(f"⚠️ Не удалось сохранить antispam_joins.json: {e}")
+
+
 def vk_antispam_worker(
     vk_token: str,
     vk_peer_id: int,
     vk_chat_id: int,
     stop_event_obj,
-    window_sec: int = 60,
+    window_sec: int = 86400,
     poll_sec: int = 3,
     tg_token: str = None,
     tg_chat_id: int = None,
@@ -4569,8 +4627,11 @@ def vk_antispam_worker(
     """
     add_log(f"🛡️ Антиспам: подключение к Long Poll...")
 
-    # Словарь: user_id -> timestamp входа
-    join_ts = {}
+    # Словарь: user_id -> timestamp входа (персистентно, загружается с диска)
+    join_ts = load_join_ts(window_sec)
+    add_log(f"📂 Загружено {len(join_ts)} записей из antispam_joins.json")
+    # Словарь: user_id -> (is_risky, reasons) — результат проверки профиля при входе
+    user_risk = {}
 
     # Получаем Long Poll сервер
     server = None
@@ -4617,7 +4678,7 @@ def vk_antispam_worker(
                 "key": key,
                 "ts": ts,
                 "wait": 25,
-                "mode": 2,
+                "mode": 10,
                 "version": 3,
             }
 
@@ -4667,13 +4728,24 @@ def vk_antispam_worker(
                                     join_ts[invited_user] = current_time
                                     add_log(f"👤 Антиспам: вход user_id={invited_user}")
 
-                                    # Очистка старых записей (старше 5 минут)
-                                    cutoff = current_time - 300
+                                    # Проверяем профиль нового пользователя
+                                    is_risky, risk_reasons = check_vk_profile_risk(vk_token, invited_user)
+                                    user_risk[invited_user] = (is_risky, risk_reasons)
+                                    if is_risky:
+                                        add_log(f"⚠️ Рискованный профиль user_id={invited_user}: {', '.join(risk_reasons)}")
+                                    else:
+                                        detail = f" ({', '.join(risk_reasons)})" if risk_reasons else ""
+                                        add_log(f"✅ Профиль ОК user_id={invited_user}{detail}")
+
+                                    # Очистка старых записей (старше window_sec)
+                                    cutoff = current_time - window_sec
                                     join_ts = {
                                         uid: jt
                                         for uid, jt in join_ts.items()
                                         if jt > cutoff
                                     }
+                                    user_risk = {uid: v for uid, v in user_risk.items() if uid in join_ts}
+                                    save_join_ts(join_ts)
 
                         # === ПРОВЕРКА "ТОЛЬКО КАРТИНКА" ДЛЯ НОВЫХ ПОЛЬЗОВАТЕЛЕЙ ===
                         # Кикаем новых пользователей, которые отправляют картинки без текста
@@ -4757,9 +4829,55 @@ def vk_antispam_worker(
 
                                         # Удаляем из отслеживания (чтобы не кикать повторно)
                                         join_ts.pop(from_id, None)
+                                        user_risk.pop(from_id, None)
+                                        save_join_ts(join_ts)
 
                                         # Переходим к следующему событию (не проверяем текст)
                                         continue
+
+                                    # === РЕПОСТ (WALL) ОТ НОВОГО ПОЛЬЗОВАТЕЛЯ ===
+                                    has_wall_repost = any(
+                                        extra.get(k) == "wall"
+                                        for k in extra.keys()
+                                        if k.startswith("attach") and k.endswith("_type")
+                                    )
+                                    if has_wall_repost:
+                                        if from_id not in user_risk:
+                                            add_log(f"🔍 Профиль user_id={from_id} не в кеше, запрашиваю...")
+                                            is_r, r_reasons = check_vk_profile_risk(vk_token, from_id)
+                                            user_risk[from_id] = (is_r, r_reasons)
+                                        risk_is_risky, risk_reasons = user_risk[from_id]
+                                        add_log(f"⚠️ Репост (wall) от нового пользователя! user_id={from_id}, {int(time_since_join)} сек после входа, профиль_риск={risk_is_risky}")
+
+                                        if risk_is_risky:
+                                            spam_reason = "репост со своей страницы (новый пользователь)"
+                                            if risk_reasons:
+                                                spam_reason += f" | профиль: {', '.join(risk_reasons)}"
+                                            add_log(f"🚫 Автокик: рискованный профиль + репост. user_id={from_id}")
+                                            spam_details = {
+                                                "has_wall_repost": True,
+                                                "time_since_join": int(time_since_join),
+                                                "profile_risky": True,
+                                                "profile_reasons": risk_reasons,
+                                            }
+                                            log_spam_to_file(from_id, text or "[репост без текста]", spam_reason, spam_details)
+                                            if notify_telegram and tg_token and tg_chat_id:
+                                                send_spam_alert_telegram(tg_token, tg_chat_id, from_id, spam_reason, text or "[репост]")
+                                            try:
+                                                vk_api_call(
+                                                    "messages.delete",
+                                                    vk_token,
+                                                    {"peer_id": peer_id, "delete_for_all": 1, "message_ids": message_id},
+                                                    timeout=5,
+                                                )
+                                                add_log(f"🗑️ Репост удалён")
+                                            except Exception as e:
+                                                add_log(f"❌ Ошибка удаления репоста: {e}")
+                                            vk_kick_user(vk_token, vk_chat_id, from_id, reason=spam_reason)
+                                            join_ts.pop(from_id, None)
+                                            user_risk.pop(from_id, None)
+                                            save_join_ts(join_ts)
+                                            continue
 
                         # === ПРОВЕРКА СООБЩЕНИЙ ===
                         if from_id > 0 and text:
@@ -4785,6 +4903,13 @@ def vk_antispam_worker(
                                     add_log(
                                         f"🚫 Ссылка от не-админа! user_id={from_id}"
                                     )
+
+                                # 1.5. Скрытый контакт мессенджера (tg:, телеграм:, whatsapp и т.п.)
+                                elif pattern_details.get("has_messenger_contact"):
+                                    is_spam_detected = True
+                                    spam_reason = "контакт мессенджера / рекламный спам"
+                                    spam_details = pattern_details
+                                    add_log(f"🚫 Контакт мессенджера! user_id={from_id}")
 
                                 # 2. Номер телефона
                                 elif pattern_details.get("has_phone"):
@@ -4915,6 +5040,12 @@ def vk_antispam_worker(
                                 spam_reason = "ссылка в отредактированном сообщении"
                                 spam_details = pattern_details
                                 add_log(f"🚫 Ссылка в редакции! user_id={from_id}")
+
+                            elif pattern_details.get("has_messenger_contact"):
+                                is_spam_detected = True
+                                spam_reason = "контакт мессенджера в редакции"
+                                spam_details = pattern_details
+                                add_log(f"🚫 Контакт мессенджера в редакции! user_id={from_id}")
 
                             elif pattern_details.get("has_phone"):
                                 is_spam_detected = True
@@ -5054,7 +5185,7 @@ def bot_worker(
     add_log("🤖 bot_worker стартовал!")
     # --- антиспам для VK беседы (кик, если написал в первые N сек после входа) ---
     antispam_enabled = params.get("antispam_enabled", True)
-    antispam_window_sec = params.get("antispam_window_sec", 300)
+    antispam_window_sec = params.get("antispam_window_sec", 86400)
 
     # --- уведомления о заказах ---
     order_notify_enabled = params.get("order_notify_enabled", False)
