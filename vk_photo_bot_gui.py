@@ -1312,8 +1312,11 @@ def load_sent_photos():
 
 
 def save_sent_photo(photo_id):
-    with open(SENT_PHOTOS_FILE, "a", encoding="utf-8") as f:
-        f.write(f"{photo_id}\n")
+    try:
+        with open(SENT_PHOTOS_FILE, "a", encoding="utf-8") as f:
+            f.write(f"{photo_id}\n")
+    except OSError as e:
+        add_log(f"⚠️ Не удалось сохранить ID фото (возможно, нет места на диске): {e}")
 
 
 # ================== GUI UTILS ==================
