@@ -1311,9 +1311,33 @@ def load_sent_photos():
         return set()
 
 
+MAX_SENT_PHOTOS = 50_000
+
+
+def _trim_sent_photos_file():
+    try:
+        with open(SENT_PHOTOS_FILE, "r", encoding="utf-8") as f:
+            lines = f.readlines()
+        if len(lines) > MAX_SENT_PHOTOS:
+            with open(SENT_PHOTOS_FILE, "w", encoding="utf-8") as f:
+                f.writelines(lines[-MAX_SENT_PHOTOS:])
+            add_log(f"🧹 Файл {SENT_PHOTOS_FILE} обрезан до {MAX_SENT_PHOTOS} записей.")
+    except Exception as e:
+        add_log(f"⚠️ Ошибка обрезки файла {SENT_PHOTOS_FILE}: {e}")
+
+
 def save_sent_photo(photo_id):
-    with open(SENT_PHOTOS_FILE, "a", encoding="utf-8") as f:
-        f.write(f"{photo_id}\n")
+    try:
+        with open(SENT_PHOTOS_FILE, "a", encoding="utf-8") as f:
+            f.write(f"{photo_id}\n")
+        try:
+            size = os.path.getsize(SENT_PHOTOS_FILE)
+            if size > 5 * 1024 * 1024:  # обрезать если файл > 5 МБ
+                _trim_sent_photos_file()
+        except OSError:
+            pass
+    except OSError as e:
+        add_log(f"⚠️ Не удалось сохранить ID фото (возможно, нет места на диске): {e}")
 
 
 # ================== GUI UTILS ==================
