@@ -21,7 +21,7 @@
     "hours": 48,
     "antispam_enabled": true,
     "antispam_window_sec": 300,
-    "antispam_notify_telegram": true,
+    "antispam_notify_telegram": false,
     "order_notify_enabled": false,
     "order_notify_vk_id": "irina_mod",
     "order_chat_link": "https://vk.com/im/convo/2000000001"
