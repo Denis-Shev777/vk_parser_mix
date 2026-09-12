@@ -4364,8 +4364,8 @@ def get_vk_posts(token, owner_id, count=5, hours=None):
                 error_code = data["error"].get("error_code")
                 error_msg = data["error"].get("error_msg")
                 if error_code == 9 and attempt < 2:
-                    add_log(f"⚠️ VK Flood control (wall.get), ожидание 30 сек... (попытка {attempt + 1}/3)")
-                    time.sleep(30)
+                    add_log(f"⚠️ VK Flood control (wall.get), ожидание 60 сек... (попытка {attempt + 1}/3)")
+                    time.sleep(60)
                     continue
                 add_log(
                     f"VK API ошибка при получении постов (Code: {error_code}): {error_msg}"
@@ -4553,8 +4553,8 @@ def vk_api_call(method: str, vk_token: str, params: dict, timeout: int = 15) -> 
         if "error" in data:
             err = data["error"]
             if err.get("error_code") == 9 and attempt < 2:
-                add_log(f"⚠️ VK Flood control ({method}), ожидание 30 сек... (попытка {attempt + 1}/3)")
-                time.sleep(30)
+                add_log(f"⚠️ VK Flood control ({method}), ожидание 60 сек... (попытка {attempt + 1}/3)")
+                time.sleep(60)
                 continue
             raise RuntimeError(
                 f"VK API error {err.get('error_code')}: {err.get('error_msg')}"
@@ -5340,6 +5340,11 @@ def bot_worker(
         hours = int(params.get("hours", 24)) if mode == "date" else None
         sent_ids = load_sent_ids()
         add_log("🚀 Парсер готов к работе.")
+        add_log("⏳ Ожидание 15 сек перед первым циклом (чтобы антиспам успел подключиться)...")
+        for _ in range(15):
+            if stop_event_obj.is_set():
+                return
+            time.sleep(1)
         while not stop_event_obj.is_set():
             now = datetime.datetime.now()
             add_log(
