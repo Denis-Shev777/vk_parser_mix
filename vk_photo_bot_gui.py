@@ -4355,45 +4355,51 @@ def get_vk_posts(token, owner_id, count=5, hours=None):
         "count": posts_to_fetch_initial,
         "v": VK_API_VERSION,
     }
-    try:
-        r = requests.get(url, params=params, timeout=15)
-        r.raise_for_status()
-        data = r.json()
-        if "error" in data:
-            error_code = data["error"].get("error_code")
-            error_msg = data["error"].get("error_msg")
-            add_log(
-                f"VK API ошибка при получении постов (Code: {error_code}): {error_msg}"
-            )
-            if error_code == 15:
+    for attempt in range(3):
+        try:
+            r = requests.get(url, params=params, timeout=15)
+            r.raise_for_status()
+            data = r.json()
+            if "error" in data:
+                error_code = data["error"].get("error_code")
+                error_msg = data["error"].get("error_msg")
+                if error_code == 9 and attempt < 2:
+                    add_log(f"⚠️ VK Flood control (wall.get), ожидание 30 сек... (попытка {attempt + 1}/3)")
+                    time.sleep(30)
+                    continue
                 add_log(
-                    f"Ошибка доступа к стене {owner_id}. Возможно, она приватна или удалена."
+                    f"VK API ошибка при получении постов (Code: {error_code}): {error_msg}"
                 )
-            elif error_code == 100:
-                add_log(f"VK API: Неверный owner_id или токен. Проверьте настройки.")
+                if error_code == 15:
+                    add_log(
+                        f"Ошибка доступа к стене {owner_id}. Возможно, она приватна или удалена."
+                    )
+                elif error_code == 100:
+                    add_log(f"VK API: Неверный owner_id или токен. Проверьте настройки.")
+                return []
+            posts = data["response"]["items"]
+            if hours:
+                since_timestamp = int(time.time()) - int(hours) * 3600
+                filtered_posts = [p for p in posts if p.get("date", 0) >= since_timestamp]
+                filtered_posts.sort(key=lambda p: p.get("date", 0))
+                add_log(
+                    f"Отфильтровано постов за последние {hours} часов: {len(filtered_posts)}"
+                )
+                return filtered_posts
+            else:
+                return posts[:count]
+        except requests.exceptions.RequestException as e:
+            add_log(f"Ошибка сети/запроса при получении постов VK: {e}")
             return []
-        posts = data["response"]["items"]
-        if hours:
-            since_timestamp = int(time.time()) - int(hours) * 3600
-            filtered_posts = [p for p in posts if p.get("date", 0) >= since_timestamp]
-            filtered_posts.sort(key=lambda p: p.get("date", 0))
+        except json.JSONDecodeError:
             add_log(
-                f"Отфильтровано постов за последние {hours} часов: {len(filtered_posts)}"
+                f"Ошибка декодирования JSON от VK API при получении постов. Ответ: {r.text if 'r' in locals() else 'нет ответа'}"
             )
-            return filtered_posts
-        else:
-            return posts[:count]
-    except requests.exceptions.RequestException as e:
-        add_log(f"Ошибка сети/запроса при получении постов VK: {e}")
-        return []
-    except json.JSONDecodeError:
-        add_log(
-            f"Ошибка декодирования JSON от VK API при получении постов. Ответ: {r.text if 'r' in locals() else 'нет ответа'}"
-        )
-        return []
-    except Exception as e:
-        add_log(f"Неизвестная ошибка при получении постов VK: {traceback.format_exc()}")
-        return []
+            return []
+        except Exception as e:
+            add_log(f"Неизвестная ошибка при получении постов VK: {traceback.format_exc()}")
+            return []
+    return []
 
 
 def parse_attachments(post, limit_photos=0):
@@ -4541,14 +4547,20 @@ def vk_api_call(method: str, vk_token: str, params: dict, timeout: int = 15) -> 
         "v": VK_API_VERSION,
     }
     base.update(params or {})
-    r = requests.post(url, data=base, timeout=timeout)
-    data = r.json()
-    if "error" in data:
-        err = data["error"]
-        raise RuntimeError(
-            f"VK API error {err.get('error_code')}: {err.get('error_msg')}"
-        )
-    return data.get("response", {})
+    for attempt in range(3):
+        r = requests.post(url, data=base, timeout=timeout)
+        data = r.json()
+        if "error" in data:
+            err = data["error"]
+            if err.get("error_code") == 9 and attempt < 2:
+                add_log(f"⚠️ VK Flood control ({method}), ожидание 30 сек... (попытка {attempt + 1}/3)")
+                time.sleep(30)
+                continue
+            raise RuntimeError(
+                f"VK API error {err.get('error_code')}: {err.get('error_msg')}"
+            )
+        return data.get("response", {})
+    raise RuntimeError("VK API error 9: Flood control (исчерпаны попытки)")
 
 
 def vk_kick_user(
